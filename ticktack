@@ -1,0 +1,236 @@
+#!/bin/bash
+
+# CLI time tracking script for the x11 windowing system
+# Dependencies: sqlite3, xprop, xdotool
+
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m' # no color; reset
+
+# options
+VERBOSITY=0
+INTERVAL=1
+MAX_DURATION=8
+    
+function print_help() {
+    cat << END
+SYNOPSIS
+    ticktack [COMMAND] [OPTIONS]
+
+DESCRIPTION
+    ticktack is an automatic CLI time tracker for the x11 windowing system.
+
+COMMANDS
+    start       Start the ticktack daemon.
+    stop        Stop the daemon.
+    query       Send a simple query to the database and print the result.
+    help        Print help and exit.
+
+OPTIONS for "start"
+    -v, --verbose       Print every database entry to stdout.
+    -i, --intervals     Specify the interval at which the daemon checks for a new active window (in seconds).
+    -m, --max-duration  The time which can pass without a new database entry (in seconds).
+
+OPTIONS for "query"
+    -b, --begin         The start time for the query (in Unix time in seconds).
+    -e, --end           The end time for the query (in Unix time in seconds).
+    -o, --out           The output format (either csv, tsv, raw or nothing).
+    -s, --sum           The metric by which to sum up all the entries in the interval (either "all" or "class")
+END
+}
+
+
+function print_error() {
+    printf "${RED}ERROR:${NC} %s\n" "$1" 1>&2
+    printf "Try 'ticktack --help' to get further information.\n"
+}
+
+function print_save() {
+    [ 0 -eq "$VERBOSITY" ] && return 0
+    printf "${YELLOW}SAVED"
+    [ 0 -eq "$6" ] && printf " (safety)" || printf "         "
+    printf ":${NC} ${BLUE}%s${NC} %s %s" "$4" "$1" "$2"
+    printf "\n"
+}
+
+function save_entry() {
+    # For now it just deletes every "|" and "'" when it saves window titles
+    sqlite3 "$PATH_TO_DB" << END
+        INSERT INTO data (start, duration, window_name, window_class, window_id)
+        VALUES ($1, $2, '$(echo "$3" | tr -d "'|")', '$(echo "$4" | tr -d "'|")', $5);
+END
+    print_save "$1" "$2" "$3" "$4" "$5" "$6"
+}
+
+function get_entry() {
+    case "$QUERY_SUM" in
+        all)
+            sqlite3 "$PATH_TO_DB" <<EOF
+SELECT
+    SUM(duration) as A
+FROM data
+WHERE start BETWEEN $1 AND $2
+EOF
+            ;;
+        class)
+            sqlite3 "$PATH_TO_DB" <<EOF
+SELECT window_class,
+    SUM(duration) as A
+FROM data
+WHERE start BETWEEN $1 AND $2
+GROUP BY window_class
+EOF
+            ;;
+        *)
+            sqlite3 "$PATH_TO_DB" "SELECT * FROM data WHERE start BETWEEN $1 AND $2"
+            ;;
+    esac
+}
+
+function stop_daemon() {
+    for pid in "$(pgrep -f "bash.+ticktack")"; do
+        kill -INT -$pid
+    done
+    exit 0
+}
+
+function start_daemon() {
+    # ID 0 is used when there is no focused window, aw stands for active window
+    old_aw_ID=0 
+    old_aw_Name=""
+    old_aw_Class=""
+    aw_Start=$(date +'%s')
+    i=0
+    while true; do 
+        aw_ID=$(xdotool getactivewindow 2> /dev/null || echo 0)
+        aw_Name=$(xprop WM_NAME -id $aw_ID 2> /dev/null | grep -o '".*"') 
+        aw_Class=$(xprop WM_CLASS -id $aw_ID 2> /dev/null | grep -o '".*"')
+        if  ! [ $aw_ID == $old_aw_ID ] || ! [ "$aw_Name" == "$old_aw_Name" ] || ! [ "$aw_Class" == "$old_aw_Class" ]; then 
+            aw_Duration=$(( $(date +%s) - aw_Start ))
+            save_entry $aw_Start $aw_Duration "$aw_Name" "$aw_Class" "$aw_ID" 1
+            old_aw_ID=$aw_ID
+            old_aw_Name="$aw_Name"
+            old_aw_Class="$aw_Class"
+            aw_Start=$(date +'%s')
+            i=0
+        elif [ $(( i * INTERVAL + 1 )) -ge $MAX_DURATION ]; then 
+            aw_Duration=$(( $(date +%s) - aw_Start ))
+            save_entry $aw_Start $aw_Duration "$aw_Name" "$aw_Class" "$aw_ID" 0
+            aw_Start=$(date +'%s')
+            i=0
+        else
+            i=$(( i + 1 ))
+        fi 
+        sleep $INTERVAL 
+    done
+}
+
+# end of function declaration
+
+stty -echoctl # don't print ^C when pressing ctrl+c
+
+# make sure everything is in place
+[ -z "$XDG_DATA_HOME" ] && PATH_TO_DB="$HOME/.local/share/ticktack.db" || PATH_TO_DB="$XDG_DATA_HOME/ticktack.db"
+
+touch "$PATH_TO_DB"
+sqlite3 "$PATH_TO_DB" << END
+    CREATE TABLE IF NOT EXISTS data (
+        id INTEGER PRIMARY KEY,
+        start INTEGER NOT NULL,
+        duration INTEGER NOT NULL,
+        window_name TEXT,
+        window_class TEXT,
+        window_id INTEGER
+    );
+END
+
+# get major command
+COMMAND="$1"
+shift
+[ -z "$COMMAND" ] && print_help && exit 
+
+# handle options    
+# all major commands have different flag handeling
+if [ "$COMMAND" == "query" ]; then 
+    QUERY_START=0
+    QUERY_END=$(date +%s)
+    QUERY_SUM=""
+    QUERY_OUT="none"
+    while [[ "$1" == -* ]]; do
+        case "$1" in
+            -b|--begin) 
+                shift
+                QUERY_START="$1" 
+                ;;
+            -e|--end) 
+                shift
+                QUERY_END="$1" 
+                ;;
+            -s|--sum)
+                shift
+                QUERY_SUM="$1"
+                ;;
+            -o|--out)
+                shift
+                QUERY_OUT="$1"
+                ;;
+            -*)
+                print_error "option '$1' does not exist for the 'query' command"
+                ;;
+        esac
+        shift
+    done
+    case "$QUERY_OUT" in
+        csv)
+            get_entry $QUERY_START $QUERY_END | sed 's/,//g' | sed 's/|/,/g'
+            exit 0
+            ;;
+        tsv)
+            get_entry $QUERY_START $QUERY_END | sed 's/|/\t/g'
+            exit 0
+            ;;
+        raw)
+            get_entry $QUERY_START $QUERY_END 
+            ;;
+        none)
+            get_entry $QUERY_START $QUERY_END | column -t -s '|'
+            ;;
+        *)
+            print_error "The output format \"$1\" is not available."
+            exit 1
+            ;;
+    esac
+elif [ "$COMMAND" == "start" ]; then 
+    while [[ "$1" == -* ]]; do 
+        case "$1" in
+            -v|--verbose)
+                VERBOSITY=1
+                ;;
+            -i|--interval) 
+                shift
+                INTERVAL=$1 
+                ;;
+            -m|--max-duration) 
+                shift
+                MAX_DURATION="$1" 
+                ;;
+            -*)
+		print_error "option '$1' does not exist for the 'start' command"
+                ;;
+	esac
+	shift
+    done
+    start_daemon
+elif [ "$COMMAND" == "stop" ]; then 
+    stop_daemon
+elif [ "$COMMAND" == "help" ] || [ "$COMMAND" == "-h" ] || [ "$COMMAND" == "--help" ]; then 
+    print_help
+else
+    print_error "Command '$COMMAND' does not exist"
+    exit 1
+fi
+
