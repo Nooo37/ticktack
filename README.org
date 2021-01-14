@@ -3,7 +3,7 @@
 
 ** Why?
 
-I'm a fan of tracking everything especially if tracking it comes at zero cost. That's why I used [[https://github.com/ActivityWatch/activitywatch][ActivityWatch]] for a long time on Windows. ActivityWatch is a great and very userfriendly open source project. Unfortunately I only got it working very inconsistently on Linux which is obviously a big pain when trying to track your behavior over a longer period of time. It also used more resources and was less hackable than I would have liked. So I decided to give up on ActivityWatch and replace it with this small shell script (to be fair ActivityWatch adds more than that: It also has great browser integration, a localhost web interface and so on).
+I'm a fan of tracking everything especially if tracking it comes at zero cost. That's why I used [[https://github.com/ActivityWatch/activitywatch][ActivityWatch]] for a long time on Windows. ActivityWatch is a great and very user-friendly open source project. Unfortunately I only got it working very inconsistently on Linux which is obviously a big pain when trying to track your behavior over a longer period of time. It also used more resources and was less hackable than I would have liked. So I decided to give up on ActivityWatch and replace it with this small shell script (to be fair ActivityWatch adds more than that: It also has great browser integration, a localhost web interface and so on).
 
 ** Examples
 
