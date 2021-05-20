@@ -7,7 +7,7 @@ I'm a fan of tracking everything especially if tracking it comes at zero cost. T
 
 ** Examples
 
-To start the daemon, my PC runs this command on every startup (the `-m` flag only specifies how much time can pass without making a database entry - it defaults to eight):
+To start the daemon, my PC runs this command on every startup (the =-m= flag only specifies how much time can pass without making a database entry - it defaults to eight):
 
 #+begin_src shell
 ticktack start -m 30
@@ -25,4 +25,4 @@ To check how long I've been on my PC yesterday, I would do:
 ticktack query --begin "$(date -d 'yesterday 00:00:00' +'%s')" --end "$(date -d 'today 00:00:00' '+%s')" --sum all
 #+end_src
 
-You get the idea. Querying features are currently a little limited but sufficient and very simple. The only database is located at `$XDG_DATA_HOME/ticktack.db`.
+You get the idea. Querying features are currently a little limited but sufficient and very simple. The only database is located at =$XDG_DATA_HOME/ticktack.db=.
